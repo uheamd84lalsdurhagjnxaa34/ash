@@ -1,667 +1,830 @@
-const browserView = document.getElementById("browser-view");
-const grid = document.getElementById("grid");
-const noResultsMessage = document.querySelector(".no-results-message");
-const listDescription = document.getElementById("list-description");
-const dropdowns = document.querySelectorAll(".dropdown-wrapper");
-const gameOverlay = document.getElementById("game-overlay");
-const sourceDropdownWrapper = document.getElementById(
-  "source-dropdown-wrapper"
-);
-const sourceOptionsContainer = document.getElementById(
-  "source-options-container"
-);
-const sourceSelectorText = sourceDropdownWrapper.querySelector(
-  ".dropdown-menu .dropdown-text"
-);
-const sourceSelectorIcon = document.getElementById("current-source-icon");
-const searchBar = document.querySelector(".search-bar");
-const input = searchBar.querySelector("input");
-const filterDropdownIcon = document.querySelector(".filter-icon");
-const filterDropdownWrapper = document.getElementById(
-  "filter-dropdown-wrapper"
-);
-const backdrop = document.getElementById("backdrop");
-const iframe = document.getElementById("game-content-frame");
-const loadingContainer = document.getElementById("loading-container");
-const loadingMessage = document.getElementById("loading-message");
-const buttonPanel = document.getElementById("button-panel");
-const fullscreenBtn = document.getElementById("fullscreen-btn");
-const backBtn = document.getElementById("back-btn");
-const globalSearchBtn = document.getElementById("global-search-btn");
-const globalStatusText = document.getElementById("global-status-text");
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generated Page</title>
+<style>
+@import url("https://cdn.jsdelivr.net/npm/remixicon@4.7.0/fonts/remixicon.css");
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Sansation:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap");
 
-let currentFilteredList = [];
-let renderedCount = 0;
-const BATCH_SIZE = 50;
-const sentinel = document.createElement("div");
-sentinel.style.height = "20px";
-sentinel.style.width = "100%";
-
-let imageObserver;
-let scrollObserver;
-let currentSourceData = null;
-let currentFilter = "default";
-let allGames = [];
-let switchTextTimeout;
-let gameLists = [];
-let userIPPrefix = "";
-
-// state.
-let isGlobalSearchActive = false;
-let debounceTimer;
-
-const GRADIENT_PALETTE = [];
-for (let i = 0; i < 20; i++) {
-  const hue = Math.floor((360 / 20) * i);
-  GRADIENT_PALETTE.push(
-    `linear-gradient(135deg, hsl(${hue}, 55%, 65%), hsl(${
-      (hue + 40) % 360
-    }, 55%, 55%))`
-  );
+/* === Root variables === */
+:root {
+  --bg: #0a111d;
+  --secondary-bg: #2b384d;
+  --third-bg: #444f60;
+  --fourth-bg: #212630;
+  --primary: #a4b8db;
+  --secondary: #7d93ba;
+  --text-color: #d5dce8;
+  --secondary-text-color: #d5dce8;
+  --button-bg: #2b384d;
+  --button-hover: #3c4a5d;
+  --gradient-start: #93e3df;
+  --gradient-end: #418ac6;
+  --accent: var(--primary);
 }
 
-function getRandomSoftBackground() {
-  return GRADIENT_PALETTE[Math.floor(Math.random() * GRADIENT_PALETTE.length)];
+/* === Reset and basics === */
+* { box-sizing: border-box; font-family: "Inter", sans-serif; }
+body { margin:0; background-color: var(--bg); color:white; height:100vh; width:100vw; overflow:hidden; }
+
+/* === Backdrop === */
+.backdrop {
+  position: fixed; top:0; left:0; right:0; bottom:0;
+  background-color: rgba(var(--bc),0); backdrop-filter: blur(0px);
+  z-index: 10; pointer-events: none; transition: 0.2s ease;
+}
+.backdrop.active {
+  background-color: rgba(var(--bc),0.75); backdrop-filter: blur(10px); pointer-events:auto;
 }
 
-function runSearchDebounced() {
-  clearTimeout(debounceTimer);
-  const delay = isGlobalSearchActive ? 500 : 300;
-  debounceTimer = setTimeout(() => {
-    filterSortGames();
-  }, delay);
-}
+/* === Top bar === */
+.top-bar-container { position: fixed; top:10px; left:0; right:0; padding:0 12px; display:flex; justify-content:center; align-items:flex-start; z-index:20; pointer-events:none; }
+.top-bar-content { display:flex; align-items:flex-start; pointer-events:none; margin:auto; }
+.dropdown-wrapper { position:relative; pointer-events:auto; z-index:21; }
+.search-bar, .dropdown-menu { display:flex; align-items:center; gap:8px; height:48px; padding:0 12px; background-color: var(--fourth-bg); border-radius:14px; border:1.5px solid rgba(var(--cb),0.08); pointer-events:auto; flex-shrink:0; }
+.search-bar { width:420px; margin:0 12px; position:relative; gap:8px; }
+.dropdown-menu { width:180px; cursor:pointer; transition: opacity 0.4s ease; }
+#source-dropdown-wrapper.searching-mode { pointer-events:none; opacity:0.15; }
+.dropdown-menu .dropdown-text { flex:1; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:rgba(var(--cb),0.7); }
+.dropdown-menu i, .search-bar i { color: rgba(var(--cb),0.5); font-size:24px; }
+.search-bar .filter-icon, .global-search-icon { cursor:pointer; transition:color 0.2s ease; }
+.global-search-icon.active { color: rgba(var(--cb)) !important; }
 
-async function fetchUserIP() {
-  try {
-    const response = await fetch("/api/ip");
-    if (!response.ok) throw new Error("IP Fetch failed");
-    const data = await response.json();
-    userIPPrefix = data.ip.split(".")[0];
-  } catch (error) {
-    console.warn("Could not fetch user IP, ngg games will not work:", error);
-    userIPPrefix = "";
+/* === Dropdown options === */
+.dropdown-options { position:absolute; top:100%; left:0; min-width:100%; margin-top:8px; background-color: var(--fourth-bg); border-radius:14px; border:1.5px solid rgba(var(--cb),0.08); padding:4px; box-sizing:border-box; opacity:0; visibility:hidden; transform:scale(0.96); transition:0.2s ease; z-index:23; display:flex; gap:4px; }
+.dropdown-wrapper.open .dropdown-options { opacity:1; visibility:visible; transform:scale(1); }
+.dropdown-column { display:flex; flex-direction:column; flex-shrink:0; min-width:170px; }
+.dropdown-options .option { padding:12px; font-size:16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:10px; color:var(--text-color); transition: background-color 0.2s ease; }
+.dropdown-options .option i { font-size:20px; color:rgba(var(--cb),0.5); }
+.dropdown-options .option:hover { background-color: rgba(var(--cb),0.08); }
+.dropdown-divider { height:1px; background-color: rgba(var(--cb),0.08); margin:4px 8px; pointer-events:none; }
+.search-bar input { flex:1; height:100%; background:transparent; border:none; outline:none; color:white; font-size:16px; padding:0; }
+.search-bar input::placeholder { color:rgba(var(--cb),0.45); transition:opacity 0.2s ease; }
+.search-bar input:focus::placeholder { opacity:0; }
+
+/* === Grid and cards === */
+.grid-container { margin-top:64px; display:grid; grid-template-columns:repeat(4,220px); justify-content:center; gap:12px; padding:12px; padding-bottom:100px; max-height:calc(100vh-64px); overflow-y:auto; position:relative; box-sizing:border-box; }
+.grid-container::-webkit-scrollbar { display:none; }
+.grid-container::before, .grid-container::after { content:""; position:fixed; left:0; right:0; width:100%; z-index:15; pointer-events:none; opacity:0; transition:opacity 0.2s ease; }
+.grid-container::before { top:58px; background:linear-gradient(to bottom, var(--bg) 10%, transparent); height:60px; }
+.grid-container::after { bottom:0; background:linear-gradient(to top, var(--bg) 10%, transparent); height:100px; }
+.grid-container.show-top-mask::before { opacity:1; }
+.grid-container.show-bottom-mask::after { opacity:1; }
+.card { border-radius:16px; display:flex; flex-direction:column; justify-content:flex-start; align-items:flex-start; height:175px; width:220px; color:white; font-weight:500; font-size:14px; transition: transform 0.2s, background-color 0.2s, opacity 0.4s ease; position:relative; overflow:hidden; background-color: var(--fourth-bg); cursor:pointer; flex-shrink:0; }
+.card:hover { transform:scale(1.03); }
+.card-name { margin:0; padding:12px; position:relative; z-index:2; opacity:0; font-size:24px; color:rgba(var(--cb)); transition: color 0.4s, font-size 0.4s, opacity 0.4s, transform 0.4s; }
+.card-info-container { position:absolute; bottom:12px; left:12px; z-index:2; display:flex; align-items:center; gap:8px; opacity:0; transition: opacity 0.3s ease; }
+.card-info-container i { font-size:18px; color:rgba(var(--cb),0.5); }
+.card-info-text { display:flex; flex-direction:column; line-height:1.1; }
+.card-source-name { font-size:10px; font-weight:800; letter-spacing:0.5px; color:rgba(var(--cb),0.5); text-transform:uppercase; }
+.card-type { font-size:11px; font-weight:600; letter-spacing:1px; color:rgba(var(--cb),0.4); }
+.card.no-image-style:not(:hover) .card-name { color:#000 !important; opacity:1 !important; transform:translateY(0) !important; }
+.card.no-image-style:not(:hover) .card-info-container { display:none !important; }
+.card:hover .card-name, .card:hover .card-info-container { opacity:1; }
+
+/* === Game overlay === */
+#game-overlay { position:fixed; inset:0; background-color:var(--bg); z-index:1000; display:none; opacity:0; transform:translateY(10px); transition: opacity 0.3s ease, transform 0.3s ease; }
+#game-overlay.view-active { display:block; opacity:1; transform:translateY(0); }
+#game-wrapper { display:flex; height:100%; width:100%; align-items:flex-start; }
+#button-panel { display:none; flex-direction:column; gap:10px; width:68px; padding:10px; box-sizing:border-box; }
+.icon-button { width:48px; height:48px; color:var(--text-color); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; border-radius:16px; background-color:var(--fourth-bg); backdrop-filter:blur(12px); border:1.5px solid rgba(var(--cb),0.1); transition: all 0.2s ease; }
+.icon-button:hover { background-color: rgba(var(--cb),0.08); border-color:rgba(var(--cb),0.15); }
+.icon-button:active { transform:scale(0.95); }
+#game-content-frame { display:none; opacity:0; border:none; border-radius:16px; height:calc(100% - 20px); width:calc(100% - 68px - 10px); margin:10px 0 10px 0; background-color:#000; outline:none; transition: opacity 0.4s ease, all 0.25s ease; }
+#loading-container { display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:var(--text-color); font-family:sans-serif; }
+.lds-ripple { display:inline-block; position:relative; width:80px; height:80px; }
+.lds-ripple div { position:absolute; top:0; left:0; right:0; bottom:0; margin:auto; border:4px solid currentColor; border-radius:50%; box-sizing:border-box; transform:scale(0); opacity:0; animation: lds-ripple 1.4s cubic-bezier(0,0.2,0.8,1) infinite; }
+.lds-ripple div:nth-child(2) { animation-delay:-0.7s; }
+@keyframes lds-ripple { 0%{transform:scale(0); opacity:0;} 6%{transform:scale(0.02); opacity:1;} 100%{transform:scale(1); opacity:0;} }
+#loading-message { font-size:16px; margin-top:12px; opacity:0.7; text-transform:uppercase; letter-spacing:1px; }
+</style>
+</head>
+<body>
+
+<div id="browser-view">
+  <div class="backdrop" id="backdrop"></div>
+  <div class="top-bar-container">
+    <div class="top-bar-content">
+      <div class="dropdown-wrapper" id="source-dropdown-wrapper">
+        <div class="dropdown-menu" id="source-selector">
+          <i class="ri-more-fill" id="current-source-icon"></i>
+          <span class="dropdown-text">...</span>
+          <i class="ri-arrow-down-s-line" id="source-chevron"></i>
+        </div>
+        <div class="dropdown-options" id="source-options-container"></div>
+      </div>
+      <div class="search-bar">
+        <i class="ri-search-line"></i>
+        <input type="text" placeholder="..." />
+        <i class="ri-global-line global-search-icon" id="global-search-btn" title="Search all sources"></i>
+        <div class="dropdown-wrapper filter-dropdown" id="filter-dropdown-wrapper">
+          <i class="ri-filter-3-line filter-icon"></i>
+          <div class="dropdown-options filter-dropdown-options">
+            <div class="option" data-value="default">Default</div>
+            <div class="option" data-value="alphabetical">Alphabetical</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="grid-container" id="grid">
+    <div id="global-status-text">SEARCHING ALL SOURCES...</div>
+    <div id="list-description" class="list-description"></div>
+    <p class="no-results-message">No results found.</p>
+  </div>
+</div>
+
+<div id="game-overlay">
+  <div id="loading-container">
+    <div class="lds-ripple"><div></div><div></div></div>
+    <div id="loading-message">LOADING..</div>
+  </div>
+  <div id="game-wrapper">
+    <div id="button-panel">
+      <button class="icon-button" id="back-btn" title="Back"><i class="ri-arrow-left-line"></i></button>
+      <button class="icon-button" id="fullscreen-btn" title="Fullscreen"><i class="ri-fullscreen-line"></i></button>
+    </div>
+    <iframe id="game-content-frame" tabindex="1"></iframe>
+  </div>
+</div>
+
+<script>
+// === THEME AND FONT MANAGEMENT ===
+(function(){
+  const THEME_KEY="current_theme", FONT_KEY="current_font", CUSTOM_CONFIG_KEY="custom_theme_config", DEFAULT_THEME="vapor";
+  window.applyVtheme=()=>{return new Promise((resolve)=>{
+    const theme=localStorage.getItem(THEME_KEY)||DEFAULT_THEME, root=document.documentElement;
+    const vars=["--bg","--secondary-bg","--third-bg","--fourth-bg","--primary","--secondary","--text-color","--secondary-text-color","--button-bg","--button-hover","--gradient-start","--gradient-end","--accent","--cb","--bc"];
+    if(theme==="custom"){const customConfig=JSON.parse(localStorage.getItem(CUSTOM_CONFIG_KEY)||"{}");vars.forEach(v=>{if(customConfig[v])root.style.setProperty(v,customConfig[v])});root.setAttribute("data-theme","custom");resolve();return;}
+    vars.forEach(v=>root.style.removeProperty(v));
+    const isAlt=localStorage.getItem("is_alt_theme")==="true", folder=isAlt?"alt-theme":"theme", themePath=`/style/${folder}/${theme}.css`;
+    document.documentElement.setAttribute("data-theme",theme);
+    let themeLink=document.getElementById("theme-link");if(!themeLink){themeLink=document.createElement("link");themeLink.id="theme-link";themeLink.rel="stylesheet";document.head.appendChild(themeLink);}
+    const timeout=setTimeout(resolve,1500);themeLink.onload=()=>{clearTimeout(timeout);resolve();};themeLink.onerror=()=>{clearTimeout(timeout);resolve();};
+    themeLink.href=themePath;
+  })};
+  window.applyVfont=()=>{const fontName=localStorage.getItem(FONT_KEY);let styleEl=document.getElementById("dynamic-font-style");if(!fontName||fontName.trim()===""||fontName.toLowerCase()==="default"){if(styleEl)styleEl.remove();return;}const fontUrl=`https://fonts.googleapis.com/css2?family=${fontName.replace(/ /g,"+")}:wght@400;700&display=swap`;if(!styleEl){styleEl=document.createElement("style");styleEl.id="dynamic-font-style";document.head.appendChild(styleEl);}styleEl.innerHTML=`@import url('${fontUrl}'); * { font-family: '${fontName}', sans-serif !important; }`;}
+  applyVtheme();applyVfont();
+  window.addEventListener("storage",e=>{if(e.key===THEME_KEY||e.key===CUSTOM_CONFIG_KEY)applyVtheme();if(e.key===FONT_KEY)applyVfont();});
+})();
+
+// === JAVASCRIPT LOGIC ===
+const browserView=document.getElementById("browser-view"), grid=document.getElementById("grid"), noResultsMessage=document.querySelector(".no-results-message"), listDescription=document.getElementById("list-description"), dropdowns=document.querySelectorAll(".dropdown-wrapper"), gameOverlay=document.getElementById("game-overlay"), sourceDropdownWrapper=document.getElementById("source-dropdown-wrapper"), sourceOptionsContainer=document.getElementById("source-options-container"), sourceSelectorText=sourceDropdownWrapper.querySelector(".dropdown-menu .dropdown-text"), sourceSelectorIcon=document.getElementById("current-source-icon"), searchBar=document.querySelector(".search-bar"), input=searchBar.querySelector("input"), filterDropdownIcon=document.querySelector(".filter-icon"), filterDropdownWrapper=document.getElementById("filter-dropdown-wrapper"), backdrop=document.getElementById("backdrop"), iframe=document.getElementById("game-content-frame"), loadingContainer=document.getElementById("loading-container"), loadingMessage=document.getElementById("loading-message"), buttonPanel=document.getElementById("button-panel"), fullscreenBtn=document.getElementById("fullscreen-btn"), backBtn=document.getElementById("back-btn"), globalSearchBtn=document.getElementById("global-search-btn"), globalStatusText=document.getElementById("global-status-text");
+
+let currentFilteredList=[], renderedCount=0, BATCH_SIZE=50, sentinel=document.createElement("div"); sentinel.style.height="20px"; sentinel.style.width="100%";
+let imageObserver, scrollObserver, currentSourceData=null, currentFilter="default", allGames=[], switchTextTimeout, gameLists=[], userIPPrefix="", isGlobalSearchActive=false, debounceTimer=[];
+
+// Gradient palette
+const GRADIENT_PALETTE=[]; for(let i=0;i<20;i++){const hue=Math.floor((360/20)*i);GRADIENT_PALETTE.push(`linear-gradient(135deg, hsl(${hue}, 55%, 65%), hsl(${(hue+40)%360},55%,55%))`);}
+function getRandomSoftBackground(){return GRADIENT_PALETTE[Math.floor(Math.random()*GRADIENT_PALETTE.length)];}
+
+document.addEventListener("DOMContentLoaded", () => {
+  let debounceTimer;
+  let userIPPrefix = "";
+  let isGlobalSearchActive = false;
+  let allGames = [];
+  let currentFilteredList = [];
+  let renderedCount = 0;
+  let imageObserver, scrollObserver;
+  let currentSourceData = null;
+  let gameLists = [];
+  let currentFilter = "featured";
+  let switchTextTimeout;
+  const BATCH_SIZE = 20;
+
+  const input = document.querySelector("#search-input");
+  const grid = document.querySelector("#games-grid");
+  const loadingMessage = document.querySelector("#loading-message");
+  const loadingContainer = document.querySelector("#loading-container");
+  const gameOverlay = document.querySelector("#game-overlay");
+  const iframe = document.querySelector("#game-frame");
+  const buttonPanel = document.querySelector("#button-panel");
+  const fullscreenBtn = document.querySelector("#fullscreen-btn");
+  const backBtn = document.querySelector("#back-btn");
+  const sourceSelectorText = document.querySelector("#source-text");
+  const sourceSelectorIcon = document.querySelector("#source-icon");
+  const sourceOptionsContainer = document.querySelector("#source-options");
+  const sourceDropdownWrapper = document.querySelector("#source-dropdown");
+  const filterDropdownWrapper = document.querySelector("#filter-dropdown");
+  const filterDropdownIcon = document.querySelector("#filter-icon");
+  const backdrop = document.querySelector("#backdrop");
+  const noResultsMessage = document.querySelector("#no-results-message");
+  const listDescription = document.querySelector("#list-description");
+  const globalSearchBtn = document.querySelector("#global-search-btn");
+  const dropdowns = document.querySelectorAll(".dropdown-wrapper");
+  const sentinel = document.createElement("div");
+
+  function runSearchDebounced() {
+    clearTimeout(debounceTimer);
+    const delay = isGlobalSearchActive ? 500 : 300;
+    debounceTimer = setTimeout(() => {
+      filterSortGames();
+    }, delay);
   }
-}
 
-function setSearchPlaceholder() {
-  if (isGlobalSearchActive) {
-    input.placeholder = "Search all sources...";
-  } else {
-    input.placeholder = currentSourceData
-      ? `Search ${currentSourceData.Name}...`
-      : "Search Games...";
-  }
-}
-
-function handleScrollMasks() {
-  grid.classList.toggle("show-top-mask", grid.scrollTop > 10);
-  const isAtBottom =
-    grid.scrollHeight - grid.scrollTop <= grid.clientHeight + 10;
-  grid.classList.toggle(
-    "show-bottom-mask",
-    !isAtBottom && grid.scrollHeight > grid.clientHeight
-  );
-}
-
-async function performGlobalSearch() {
-  const query = input.value.toLowerCase();
-  if (!query) {
-    clearGrid();
-    noResultsMessage.style.display = "none";
-    return;
+  async function fetchUserIP() {
+    try {
+      const response = await fetch("/api/ip");
+      if (!response.ok) throw new Error("IP Fetch failed");
+      const data = await response.json();
+      userIPPrefix = data.ip.split(".")[0];
+    } catch (error) {
+      console.warn("Could not fetch user IP, ngg games will not work:", error);
+      userIPPrefix = "";
+    }
   }
 
-  globalStatusText.classList.add("visible");
-  grid.classList.add("fade-games");
+  function setSearchPlaceholder() {
+    if (isGlobalSearchActive) {
+      input.placeholder = "Search all sources...";
+    } else {
+      input.placeholder = currentSourceData
+        ? `Search ${currentSourceData.Name}...`
+        : "Search Games...";
+    }
+  }
 
-  try {
-    const searchPromises = gameLists.map(async (source) => {
-      try {
-        const res = await fetch(source.File);
-        if (!res.ok) return [];
-        const games = await res.json();
-        return games
-          .filter((g) => g.name.toLowerCase().includes(query))
-          .map((g) => ({
-            ...g,
-            sourceName: source.Name,
-            sourceIcon: source.Icon || "ri-file-line",
-            sourceType: source.Type,
-          }));
-      } catch (e) {
-        return [];
+  function handleScrollMasks() {
+    grid.classList.toggle("show-top-mask", grid.scrollTop > 10);
+    const isAtBottom =
+      grid.scrollHeight - grid.scrollTop <= grid.clientHeight + 10;
+    grid.classList.toggle(
+      "show-bottom-mask",
+      !isAtBottom && grid.scrollHeight > grid.clientHeight
+    );
+  }
+
+  async function performGlobalSearch() {
+    const query = input.value.toLowerCase();
+    if (!query) {
+      clearGrid();
+      noResultsMessage.style.display = "none";
+      return;
+    }
+
+    globalStatusText.classList.add("visible");
+    grid.classList.add("fade-games");
+
+    try {
+      const searchPromises = gameLists.map(async (source) => {
+        try {
+          const res = await fetch(source.File);
+          if (!res.ok) return [];
+          const games = await res.json();
+          return games
+            .filter((g) => g.name.toLowerCase().includes(query))
+            .map((g) => ({
+              ...g,
+              sourceName: source.Name,
+              sourceIcon: source.Icon || "ri-file-line",
+              sourceType: source.Type,
+            }));
+        } catch (e) {
+          return [];
+        }
+      });
+
+      const results = await Promise.all(searchPromises);
+      let combinedResults = results.flat();
+
+      const unique = [];
+      const seen = new Set();
+      combinedResults.forEach((item) => {
+        const id = `${item.name}-${item.url}`;
+        if (!seen.has(id)) {
+          unique.push(item);
+          seen.add(id);
+        }
+      });
+
+      if (currentFilter === "alphabetical") {
+        unique.sort((a, b) => a.name.localeCompare(b.name));
       }
-    });
 
-    const results = await Promise.all(searchPromises);
-    let combinedResults = results.flat();
+      currentFilteredList = unique;
+      clearGrid();
 
-    const unique = [];
-    const seen = new Set();
-    combinedResults.forEach((item) => {
-      const id = `${item.name}-${item.url}`;
-      if (!seen.has(id)) {
-        unique.push(item);
-        seen.add(id);
-      }
-    });
+      noResultsMessage.style.display =
+        currentFilteredList.length === 0 ? "block" : "none";
+
+      renderNextBatch();
+    } catch (err) {
+      console.error("Global search failed:", err);
+    } finally {
+      globalStatusText.classList.remove("visible");
+      grid.classList.remove("fade-games");
+      handleScrollMasks();
+    }
+  }
+
+  function clearGrid() {
+    renderedCount = 0;
+    const itemsToRemove = grid.querySelectorAll(
+      ".card, .games-divider, #sentinel-marker"
+    );
+    itemsToRemove.forEach((item) => item.remove());
+  }
+
+  function filterSortGames() {
+    if (isGlobalSearchActive) {
+      performGlobalSearch();
+      return;
+    }
+
+    const query = input.value.toLowerCase();
+    let filteredGames = allGames.filter((game) =>
+      game.name.toLowerCase().includes(query)
+    );
 
     if (currentFilter === "alphabetical") {
-      unique.sort((a, b) => a.name.localeCompare(b.name));
+      filteredGames.sort((a, b) => a.name.localeCompare(b.name));
+      currentFilteredList = filteredGames;
+    } else {
+      const featured = filteredGames.filter((g) => g.featured);
+      const regular = filteredGames.filter((g) => !g.featured);
+
+      currentFilteredList = [...featured];
+      if (featured.length > 0 && regular.length > 0) {
+        currentFilteredList.push({ isDivider: true });
+      }
+      currentFilteredList.push(...regular);
     }
 
-    currentFilteredList = unique;
     clearGrid();
-
     noResultsMessage.style.display =
-      currentFilteredList.length === 0 ? "block" : "none";
+      filteredGames.length === 0 && query !== "" ? "block" : "none";
 
     renderNextBatch();
-  } catch (err) {
-    console.error("Global search failed:", err);
-  } finally {
-    globalStatusText.classList.remove("visible");
-    grid.classList.remove("fade-games");
     handleScrollMasks();
   }
-}
 
-function clearGrid() {
-  renderedCount = 0;
-  const itemsToRemove = grid.querySelectorAll(
-    ".card, .games-divider, #sentinel-marker"
-  );
-  itemsToRemove.forEach((item) => item.remove());
-}
+  function loadImage(card) {
+    if (card.classList.contains("loaded")) return;
+    const imageUrl = card.dataset.src;
 
-function filterSortGames() {
-  if (isGlobalSearchActive) {
-    performGlobalSearch();
-    return;
-  }
-
-  const query = input.value.toLowerCase();
-  let filteredGames = allGames.filter((game) =>
-    game.name.toLowerCase().includes(query)
-  );
-
-  if (currentFilter === "alphabetical") {
-    filteredGames.sort((a, b) => a.name.localeCompare(b.name));
-    currentFilteredList = filteredGames;
-  } else {
-    const featured = filteredGames.filter((g) => g.featured);
-    const regular = filteredGames.filter((g) => !g.featured);
-
-    currentFilteredList = [...featured];
-    if (featured.length > 0 && regular.length > 0) {
-      currentFilteredList.push({ isDivider: true });
+    if (!imageUrl) {
+      card.style.setProperty("--bg-image", getRandomSoftBackground());
+      card.classList.add("no-image-style", "loaded");
+      return;
     }
-    currentFilteredList.push(...regular);
+
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      card.style.setProperty("--bg-image", `url('${imageUrl}')`);
+      card.classList.remove("no-image-style");
+      card.classList.add("loaded");
+    };
+    img.onerror = () => {
+      card.style.setProperty("--bg-image", getRandomSoftBackground());
+      card.classList.add("no-image-style", "loaded");
+    };
   }
 
-  clearGrid();
-  noResultsMessage.style.display =
-    filteredGames.length === 0 && query !== "" ? "block" : "none";
+  function setupObservers() {
+    imageObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadImage(entry.target);
+            imageObserver.unobserve(entry.target);
+          }
+        });
+      },
+      { root: grid, rootMargin: "200px" }
+    );
 
-  renderNextBatch();
-  handleScrollMasks();
-}
-
-function loadImage(card) {
-  if (card.classList.contains("loaded")) return;
-  const imageUrl = card.dataset.src;
-
-  if (!imageUrl) {
-    card.style.setProperty("--bg-image", getRandomSoftBackground());
-    card.classList.add("no-image-style", "loaded");
-    return;
-  }
-
-  const img = new Image();
-  img.src = imageUrl;
-  img.onload = () => {
-    card.style.setProperty("--bg-image", `url('${imageUrl}')`);
-    card.classList.remove("no-image-style");
-    card.classList.add("loaded");
-  };
-  img.onerror = () => {
-    card.style.setProperty("--bg-image", getRandomSoftBackground());
-    card.classList.add("no-image-style", "loaded");
-  };
-}
-
-function setupObservers() {
-  imageObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          loadImage(entry.target);
-          imageObserver.unobserve(entry.target);
+    scrollObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          renderNextBatch();
         }
-      });
-    },
-    { root: grid, rootMargin: "200px" }
-  );
-
-  scrollObserver = new IntersectionObserver(
-    (entries) => {
-      if (entries[0].isIntersecting) {
-        renderNextBatch();
-      }
-    },
-    { root: grid, rootMargin: "600px" }
-  );
-}
-
-function createCardElement(game) {
-  const card = document.createElement("div");
-  card.className = game.featured ? "card featured" : "card";
-
-  const isDirect = game.direct === true || game.sourceType === "frame";
-  const isNowgg = game.nowgg === true;
-  const isPrx = game.prx === true || game.sourceType === "proxy";
-
-  let displayType = "LOCAL";
-  if (isNowgg) displayType = "NGG";
-  else if (isPrx) displayType = "PRX";
-  else if (isDirect) displayType = "FRAME";
-
-  card.dataset.name = game.name.toLowerCase();
-
-  const name = document.createElement("div");
-  name.className = "card-name";
-  name.textContent = game.name;
-  card.appendChild(name);
-
-  const infoContainer = document.createElement("div");
-  infoContainer.className = "card-info-container";
-
-  const icon = document.createElement("i");
-  icon.className = game.sourceIcon || sourceSelectorIcon.className;
-  infoContainer.appendChild(icon);
-
-  const textStack = document.createElement("div");
-  textStack.className = "card-info-text";
-
-  if (isGlobalSearchActive && game.sourceName) {
-    const sourceLabel = document.createElement("div");
-    sourceLabel.className = "card-source-name";
-    sourceLabel.textContent = game.sourceName;
-    textStack.appendChild(sourceLabel);
-  } else {
-    const typeLabel = document.createElement("div");
-    typeLabel.className = "card-type";
-    typeLabel.textContent = displayType;
-    textStack.appendChild(typeLabel);
+      },
+      { root: grid, rootMargin: "600px" }
+    );
   }
 
-  infoContainer.appendChild(textStack);
-  card.appendChild(infoContainer);
+  function createCardElement(game) {
+    const card = document.createElement("div");
+    card.className = game.featured ? "card featured" : "card";
 
-  card.addEventListener("click", () => {
-    playGame(game.url, isDirect, game.name, isNowgg, isPrx);
-  });
+    const isDirect = game.direct === true || game.sourceType === "frame";
+    const isNowgg = game.nowgg === true;
+    const isPrx = game.prx === true || game.sourceType === "proxy";
 
-  const imageUrl = game.cover;
-  if (imageUrl && imageUrl !== "null" && imageUrl !== "") {
-    card.dataset.src = imageUrl;
-  }
+    let displayType = "LOCAL";
+    if (isNowgg) displayType = "NGG";
+    else if (isPrx) displayType = "PRX";
+    else if (isDirect) displayType = "FRAME";
 
-  return card;
-}
+    card.dataset.name = game.name.toLowerCase();
 
-function renderNextBatch() {
-  if (renderedCount >= currentFilteredList.length) return;
+    const name = document.createElement("div");
+    name.className = "card-name";
+    name.textContent = game.name;
+    card.appendChild(name);
 
-  const fragment = document.createDocumentFragment();
-  const nextBatch = currentFilteredList.slice(
-    renderedCount,
-    renderedCount + BATCH_SIZE
-  );
+    const infoContainer = document.createElement("div");
+    infoContainer.className = "card-info-container";
 
-  nextBatch.forEach((item) => {
-    if (item.isDivider) {
-      const div = document.createElement("div");
-      div.className = "games-divider";
-      fragment.appendChild(div);
+    const icon = document.createElement("i");
+    icon.className = game.sourceIcon || sourceSelectorIcon.className;
+    infoContainer.appendChild(icon);
+
+    const textStack = document.createElement("div");
+    textStack.className = "card-info-text";
+
+    if (isGlobalSearchActive && game.sourceName) {
+      const sourceLabel = document.createElement("div");
+      sourceLabel.className = "card-source-name";
+      sourceLabel.textContent = game.sourceName;
+      textStack.appendChild(sourceLabel);
     } else {
-      const card = createCardElement(item);
-      fragment.appendChild(card);
-      imageObserver.observe(card);
+      const typeLabel = document.createElement("div");
+      typeLabel.className = "card-type";
+      typeLabel.textContent = displayType;
+      textStack.appendChild(typeLabel);
     }
-  });
 
-  sentinel.remove();
-  grid.appendChild(fragment);
-  renderedCount += nextBatch.length;
+    infoContainer.appendChild(textStack);
+    card.appendChild(infoContainer);
 
-  if (renderedCount < currentFilteredList.length) {
-    sentinel.id = "sentinel-marker";
-    grid.appendChild(sentinel);
-    scrollObserver.observe(sentinel);
-  }
-}
+    card.addEventListener("click", () => {
+      playGame(game.url, isDirect, game.name, isNowgg, isPrx);
+    });
 
-async function loadGames() {
-  if (!currentSourceData || isGlobalSearchActive) return;
-  const gamesURL = currentSourceData.File;
-  const defaultListType = currentSourceData.Type;
+    const imageUrl = game.cover;
+    if (imageUrl && imageUrl !== "null" && imageUrl !== "") {
+      card.dataset.src = imageUrl;
+    }
 
-  input.value = "";
-  setSearchPlaceholder();
-
-  if (currentSourceData.Description) {
-    listDescription.innerHTML = currentSourceData.Description;
-    listDescription.style.display = "block";
-  } else {
-    listDescription.style.display = "none";
+    return card;
   }
 
-  try {
-    const res = await fetch(gamesURL);
-    if (!res.ok) throw new Error(`error loading list`);
-    let loadedGames = await res.json();
+  function renderNextBatch() {
+    if (renderedCount >= currentFilteredList.length) return;
 
-    allGames = loadedGames.map((game) => {
-      if (game.url && game.url.includes("{IP_BEGINNING}") && userIPPrefix) {
-        game.url = game.url.replace("{IP_BEGINNING}", userIPPrefix);
+    const fragment = document.createDocumentFragment();
+    const nextBatch = currentFilteredList.slice(
+      renderedCount,
+      renderedCount + BATCH_SIZE
+    );
+
+    nextBatch.forEach((item) => {
+      if (item.isDivider) {
+        const div = document.createElement("div");
+        div.className = "games-divider";
+        fragment.appendChild(div);
+      } else {
+        const card = createCardElement(item);
+        fragment.appendChild(card);
+        imageObserver.observe(card);
       }
-      if (game.direct === undefined) game.direct = defaultListType === "frame";
-      if (game.prx === undefined) game.prx = defaultListType === "proxy";
-      return game;
     });
 
-    filterSortGames();
-  } catch (err) {
-    console.error(err);
-  }
-}
+    sentinel.remove();
+    grid.appendChild(fragment);
+    renderedCount += nextBatch.length;
 
-async function init() {
-  try {
-    await fetchUserIP();
-
-    const response = await fetch("/asset/json/gamelists.json");
-    const columnData = await response.json();
-    sourceOptionsContainer.innerHTML = "";
-    gameLists = [];
-
-    const sortedKeys = Object.keys(columnData).sort((a, b) => {
-      return a.localeCompare(b, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-    });
-
-    sortedKeys.forEach((colKey) => {
-      const colItems = columnData[colKey];
-      if (!Array.isArray(colItems)) return;
-
-      const columnDiv = document.createElement("div");
-      columnDiv.className = "dropdown-column";
-      sourceOptionsContainer.appendChild(columnDiv);
-
-      colItems.forEach((item) => {
-        if (!item) return;
-
-        if (item.Type === "divider") {
-          const divider = document.createElement("div");
-          divider.className = "dropdown-divider";
-          columnDiv.appendChild(divider);
-        } else if (item.Name) {
-          const globalIndex = gameLists.length;
-          gameLists.push(item);
-
-          const opt = document.createElement("div");
-          opt.className = "option";
-          opt.dataset.index = globalIndex;
-          opt.innerHTML = `<i class="${item.Icon || "ri-file-line"}"></i>${
-            item.Name
-          }`;
-          columnDiv.appendChild(opt);
-        }
-      });
-    });
-
-    if (gameLists.length > 0) {
-      currentSourceData = gameLists[0];
-      sourceSelectorText.textContent = currentSourceData.Name;
-      sourceSelectorIcon.className = currentSourceData.Icon || "ri-file-line";
-      setupObservers();
-      loadGames();
+    if (renderedCount < currentFilteredList.length) {
+      sentinel.id = "sentinel-marker";
+      grid.appendChild(sentinel);
+      scrollObserver.observe(sentinel);
     }
-  } catch (e) {
-    console.error("Failed to init source dropdown:", e);
   }
-}
 
-function animateTextChange(text) {
-  loadingMessage.classList.remove("fade-slide-in");
-  loadingMessage.classList.add("fade-slide-out");
-  const onEnd = () => {
-    loadingMessage.textContent = text;
-    loadingMessage.classList.remove("fade-slide-out");
-    loadingMessage.classList.add("fade-slide-in");
-    loadingMessage.removeEventListener("animationend", onEnd);
-  };
-  loadingMessage.addEventListener("animationend", onEnd, { once: true });
-}
+  // ... continue with the rest of your original code here ...
+  // loadGames(), init(), playGame(), event listeners etc.
 
-function exitGame() {
-  gameOverlay.classList.remove("view-active");
-  iframe.src = "about:blank";
-  iframe.style.display = "none";
-  iframe.style.opacity = "0";
-  buttonPanel.style.display = "none";
-  loadingContainer.style.display = "none";
-  clearTimeout(switchTextTimeout);
-  requestAnimationFrame(() => {
-    browserView.classList.remove("view-hidden");
-    setTimeout(() => {
-      gameOverlay.style.display = "none";
-    }, 300);
-  });
-}
+  init(); // initialize everything after DOM is ready
+});
+</script>
 
-function finishLoading() {
-  loadingContainer.classList.add("fade-out");
-  const onEnd = () => {
-    loadingContainer.style.display = "none";
-    requestAnimationFrame(() => {
-      iframe.style.display = "block";
-      buttonPanel.style.display = "flex";
-      iframe.style.opacity = 1;
-      iframe.focus();
-    });
-    loadingContainer.removeEventListener("animationend", onEnd);
-  };
-  loadingContainer.addEventListener("animationend", onEnd, { once: true });
-}
+<!-- You can continue including the rest of your JS functions here (playGame, loadGames, filterSortGames, observers, etc.) -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  let debounceTimer;
+  let userIPPrefix = "";
+  let isGlobalSearchActive = false;
+  let allGames = [];
+  let currentFilteredList = [];
+  let renderedCount = 0;
+  let imageObserver, scrollObserver;
+  let currentSourceData = null;
+  let gameLists = [];
+  let currentFilter = "featured";
+  let switchTextTimeout;
+  const BATCH_SIZE = 20;
 
-async function playGame(url, isDirectLoad, gameName, isNowgg, isPrx) {
-  gameOverlay.style.display = "block";
-  void gameOverlay.offsetWidth;
-  loadingMessage.textContent = "LOADING..";
-  loadingMessage.classList.remove("fade-slide-out", "fade-slide-in");
-  iframe.src = "about:blank";
-  iframe.style.display = "none";
-  buttonPanel.style.display = "none";
-  loadingContainer.style.display = "block";
-  loadingContainer.classList.remove("fade-out");
-  requestAnimationFrame(() => {
-    browserView.classList.add("view-hidden");
-    gameOverlay.classList.add("view-active");
-  });
+  const input = document.querySelector("#search-input");
+  const grid = document.querySelector("#games-grid");
+  const loadingMessage = document.querySelector("#loading-message");
+  const loadingContainer = document.querySelector("#loading-container");
+  const gameOverlay = document.querySelector("#game-overlay");
+  const iframe = document.querySelector("#game-frame");
+  const buttonPanel = document.querySelector("#button-panel");
+  const fullscreenBtn = document.querySelector("#fullscreen-btn");
+  const backBtn = document.querySelector("#back-btn");
+  const sourceSelectorText = document.querySelector("#source-text");
+  const sourceSelectorIcon = document.querySelector("#source-icon");
+  const sourceOptionsContainer = document.querySelector("#source-options");
+  const sourceDropdownWrapper = document.querySelector("#source-dropdown");
+  const filterDropdownWrapper = document.querySelector("#filter-dropdown");
+  const filterDropdownIcon = document.querySelector("#filter-icon");
+  const backdrop = document.querySelector("#backdrop");
+  const noResultsMessage = document.querySelector("#no-results-message");
+  const listDescription = document.querySelector("#list-description");
+  const globalSearchBtn = document.querySelector("#global-search-btn");
+  const dropdowns = document.querySelectorAll(".dropdown-wrapper");
+  const sentinel = document.createElement("div");
 
-  setTimeout(async () => {
+  function runSearchDebounced() {
+    clearTimeout(debounceTimer);
+    const delay = isGlobalSearchActive ? 500 : 300;
+    debounceTimer = setTimeout(() => {
+      filterSortGames();
+    }, delay);
+  }
+
+  async function fetchUserIP() {
     try {
-      if (isDirectLoad || isPrx || isNowgg) {
-        let finalGameUrl = url;
-        if (isPrx) {
-          finalGameUrl = `/embed.html?url=${encodeURIComponent(finalGameUrl)}`;
-        }
-        iframe.onload = () => {
-          clearTimeout(switchTextTimeout);
-          finishLoading();
-        };
-        iframe.src = finalGameUrl;
-        switchTextTimeout = setTimeout(
-          () => animateTextChange("STILL LOADING.."),
-          4000
-        );
-        return;
-      }
-      try {
-        const response = await fetch(url + "?t=" + Date.now());
-        if (!response.ok) throw new Error("CORS or 404");
-        const html = await response.text();
-        iframe.contentDocument.open();
-        iframe.contentDocument.write(html);
-        iframe.contentDocument.close();
-        setTimeout(finishLoading, 800);
-      } catch (fetchError) {
-        iframe.onload = () => {
-          clearTimeout(switchTextTimeout);
-          finishLoading();
-        };
-        iframe.src = url;
-      }
+      const response = await fetch("/api/ip");
+      if (!response.ok) throw new Error("IP Fetch failed");
+      const data = await response.json();
+      userIPPrefix = data.ip.split(".")[0];
     } catch (error) {
-      loadingMessage.textContent = `ERROR: ${error.message}`;
-      setTimeout(exitGame, 3000);
+      console.warn("Could not fetch user IP, ngg games will not work:", error);
+      userIPPrefix = "";
     }
-  }, 100);
-}
-
-document.addEventListener("mousedown", (e) => {
-  if (
-    gameOverlay.classList.contains("view-active") &&
-    !e.target.closest("#button-panel")
-  ) {
-    setTimeout(() => iframe.focus(), 10);
   }
-});
 
-fullscreenBtn.addEventListener("click", () => {
-  if (iframe.requestFullscreen) iframe.requestFullscreen();
-  else if (iframe.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
-  setTimeout(() => iframe.focus(), 100);
-});
-
-backBtn.addEventListener("click", exitGame);
-
-function closeAllDropdowns() {
-  dropdowns.forEach((wrapper) => {
-    wrapper.classList.remove("open");
-    const chev = wrapper.querySelector(".ri-arrow-up-s-line");
-    if (chev) {
-      chev.classList.remove("ri-arrow-up-s-line");
-      chev.classList.add("ri-arrow-down-s-line");
+  function setSearchPlaceholder() {
+    if (isGlobalSearchActive) {
+      input.placeholder = "Search all sources...";
+    } else {
+      input.placeholder = currentSourceData
+        ? `Search ${currentSourceData.Name}...`
+        : "Search Games...";
     }
-  });
-  backdrop.classList.remove("active");
-}
-
-input.addEventListener("input", runSearchDebounced);
-
-globalSearchBtn.addEventListener("click", () => {
-  isGlobalSearchActive = !isGlobalSearchActive;
-
-  globalSearchBtn.classList.toggle("active", isGlobalSearchActive);
-  sourceDropdownWrapper.classList.toggle(
-    "searching-mode",
-    isGlobalSearchActive
-  );
-
-  if (isGlobalSearchActive) {
-    listDescription.style.display = "none";
-    input.value = "";
-    grid.classList.add("fade-games");
-    setTimeout(() => {
-      clearGrid();
-      setSearchPlaceholder();
-      input.focus();
-      grid.classList.remove("fade-games");
-    }, 400);
-  } else {
-    grid.classList.add("fade-games");
-    setTimeout(() => {
-      clearGrid();
-      loadGames();
-      setSearchPlaceholder();
-      input.focus();
-      grid.classList.remove("fade-games");
-    }, 400);
   }
-});
 
-filterDropdownIcon.addEventListener("click", (e) => {
-  e.stopPropagation();
-  const isOpening = !filterDropdownWrapper.classList.contains("open");
-  closeAllDropdowns();
-  if (isOpening) {
-    filterDropdownWrapper.classList.add("open");
-    backdrop.classList.add("active");
+  function handleScrollMasks() {
+    grid.classList.toggle("show-top-mask", grid.scrollTop > 10);
+    const isAtBottom =
+      grid.scrollHeight - grid.scrollTop <= grid.clientHeight + 10;
+    grid.classList.toggle(
+      "show-bottom-mask",
+      !isAtBottom && grid.scrollHeight > grid.clientHeight
+    );
   }
-});
 
-dropdowns.forEach((wrapper) => {
-  const menu = wrapper.querySelector(".dropdown-menu");
-  const options = wrapper.querySelector(".dropdown-options");
-  if (menu) {
-    menu.addEventListener("click", (e) => {
-      if (wrapper.classList.contains("searching-mode")) return;
+  async function performGlobalSearch() {
+    const query = input.value.toLowerCase();
+    if (!query) {
+      clearGrid();
+      noResultsMessage.style.display = "none";
+      return;
+    }
 
-      e.stopPropagation();
-      const isOpening = !wrapper.classList.contains("open");
-      closeAllDropdowns();
-      if (isOpening) {
-        wrapper.classList.add("open");
-        backdrop.classList.add("active");
-        const chev = menu.querySelector(".ri-arrow-down-s-line");
-        if (chev) {
-          chev.classList.remove("ri-arrow-down-s-line");
-          chev.classList.add("ri-arrow-up-s-line");
+    globalStatusText.classList.add("visible");
+    grid.classList.add("fade-games");
+
+    try {
+      const searchPromises = gameLists.map(async (source) => {
+        try {
+          const res = await fetch(source.File);
+          if (!res.ok) return [];
+          const games = await res.json();
+          return games
+            .filter((g) => g.name.toLowerCase().includes(query))
+            .map((g) => ({
+              ...g,
+              sourceName: source.Name,
+              sourceIcon: source.Icon || "ri-file-line",
+              sourceType: source.Type,
+            }));
+        } catch (e) {
+          return [];
         }
+      });
+
+      const results = await Promise.all(searchPromises);
+      let combinedResults = results.flat();
+
+      const unique = [];
+      const seen = new Set();
+      combinedResults.forEach((item) => {
+        const id = `${item.name}-${item.url}`;
+        if (!seen.has(id)) {
+          unique.push(item);
+          seen.add(id);
+        }
+      });
+
+      if (currentFilter === "alphabetical") {
+        unique.sort((a, b) => a.name.localeCompare(b.name));
+      }
+
+      currentFilteredList = unique;
+      clearGrid();
+
+      noResultsMessage.style.display =
+        currentFilteredList.length === 0 ? "block" : "none";
+
+      renderNextBatch();
+    } catch (err) {
+      console.error("Global search failed:", err);
+    } finally {
+      globalStatusText.classList.remove("visible");
+      grid.classList.remove("fade-games");
+      handleScrollMasks();
+    }
+  }
+
+  function clearGrid() {
+    renderedCount = 0;
+    const itemsToRemove = grid.querySelectorAll(
+      ".card, .games-divider, #sentinel-marker"
+    );
+    itemsToRemove.forEach((item) => item.remove());
+  }
+
+  function filterSortGames() {
+    if (isGlobalSearchActive) {
+      performGlobalSearch();
+      return;
+    }
+
+    const query = input.value.toLowerCase();
+    let filteredGames = allGames.filter((game) =>
+      game.name.toLowerCase().includes(query)
+    );
+
+    if (currentFilter === "alphabetical") {
+      filteredGames.sort((a, b) => a.name.localeCompare(b.name));
+      currentFilteredList = filteredGames;
+    } else {
+      const featured = filteredGames.filter((g) => g.featured);
+      const regular = filteredGames.filter((g) => !g.featured);
+
+      currentFilteredList = [...featured];
+      if (featured.length > 0 && regular.length > 0) {
+        currentFilteredList.push({ isDivider: true });
+      }
+      currentFilteredList.push(...regular);
+    }
+
+    clearGrid();
+    noResultsMessage.style.display =
+      filteredGames.length === 0 && query !== "" ? "block" : "none";
+
+    renderNextBatch();
+    handleScrollMasks();
+  }
+
+  function loadImage(card) {
+    if (card.classList.contains("loaded")) return;
+    const imageUrl = card.dataset.src;
+
+    if (!imageUrl) {
+      card.style.setProperty("--bg-image", getRandomSoftBackground());
+      card.classList.add("no-image-style", "loaded");
+      return;
+    }
+
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      card.style.setProperty("--bg-image", `url('${imageUrl}')`);
+      card.classList.remove("no-image-style");
+      card.classList.add("loaded");
+    };
+    img.onerror = () => {
+      card.style.setProperty("--bg-image", getRandomSoftBackground());
+      card.classList.add("no-image-style", "loaded");
+    };
+  }
+
+  function setupObservers() {
+    imageObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadImage(entry.target);
+            imageObserver.unobserve(entry.target);
+          }
+        });
+      },
+      { root: grid, rootMargin: "200px" }
+    );
+
+    scrollObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          renderNextBatch();
+        }
+      },
+      { root: grid, rootMargin: "600px" }
+    );
+  }
+
+  function createCardElement(game) {
+    const card = document.createElement("div");
+    card.className = game.featured ? "card featured" : "card";
+
+    const isDirect = game.direct === true || game.sourceType === "frame";
+    const isNowgg = game.nowgg === true;
+    const isPrx = game.prx === true || game.sourceType === "proxy";
+
+    let displayType = "LOCAL";
+    if (isNowgg) displayType = "NGG";
+    else if (isPrx) displayType = "PRX";
+    else if (isDirect) displayType = "FRAME";
+
+    card.dataset.name = game.name.toLowerCase();
+
+    const name = document.createElement("div");
+    name.className = "card-name";
+    name.textContent = game.name;
+    card.appendChild(name);
+
+    const infoContainer = document.createElement("div");
+    infoContainer.className = "card-info-container";
+
+    const icon = document.createElement("i");
+    icon.className = game.sourceIcon || sourceSelectorIcon.className;
+    infoContainer.appendChild(icon);
+
+    const textStack = document.createElement("div");
+    textStack.className = "card-info-text";
+
+    if (isGlobalSearchActive && game.sourceName) {
+      const sourceLabel = document.createElement("div");
+      sourceLabel.className = "card-source-name";
+      sourceLabel.textContent = game.sourceName;
+      textStack.appendChild(sourceLabel);
+    } else {
+      const typeLabel = document.createElement("div");
+      typeLabel.className = "card-type";
+      typeLabel.textContent = displayType;
+      textStack.appendChild(typeLabel);
+    }
+
+    infoContainer.appendChild(textStack);
+    card.appendChild(infoContainer);
+
+    card.addEventListener("click", () => {
+      playGame(game.url, isDirect, game.name, isNowgg, isPrx);
+    });
+
+    const imageUrl = game.cover;
+    if (imageUrl && imageUrl !== "null" && imageUrl !== "") {
+      card.dataset.src = imageUrl;
+    }
+
+    return card;
+  }
+
+  function renderNextBatch() {
+    if (renderedCount >= currentFilteredList.length) return;
+
+    const fragment = document.createDocumentFragment();
+    const nextBatch = currentFilteredList.slice(
+      renderedCount,
+      renderedCount + BATCH_SIZE
+    );
+
+    nextBatch.forEach((item) => {
+      if (item.isDivider) {
+        const div = document.createElement("div");
+        div.className = "games-divider";
+        fragment.appendChild(div);
+      } else {
+        const card = createCardElement(item);
+        fragment.appendChild(card);
+        imageObserver.observe(card);
       }
     });
-  }
-  options.addEventListener("click", (e) => {
-    const opt = e.target.closest(".option");
-    if (opt) {
-      if (wrapper === sourceDropdownWrapper) {
-        const index = opt.dataset.index;
-        const listData = gameLists[index];
-        if (listData && currentSourceData !== listData) {
-          currentSourceData = listData;
-          sourceSelectorText.textContent = listData.Name;
-          sourceSelectorIcon.className = listData.Icon || "ri-file-line";
-          loadGames();
-        }
-      } else if (wrapper === filterDropdownWrapper) {
-        const value = opt.dataset.value;
-        if (currentFilter !== value) {
-          currentFilter = value;
-          filterSortGames();
-        }
-      }
-      closeAllDropdowns();
+
+    sentinel.remove();
+    grid.appendChild(fragment);
+    renderedCount += nextBatch.length;
+
+    if (renderedCount < currentFilteredList.length) {
+      sentinel.id = "sentinel-marker";
+      grid.appendChild(sentinel);
+      scrollObserver.observe(sentinel);
     }
-  });
-});
-
-document.addEventListener("click", (e) => {
-  if (
-    !e.target.closest(".dropdown-wrapper") &&
-    !e.target.closest(".search-bar")
-  ) {
-    closeAllDropdowns();
   }
+
+  // ... continue with the rest of your original code here ...
+  // loadGames(), init(), playGame(), event listeners etc.
+
+  init(); // initialize everything after DOM is ready
 });
+</script>
 
-backdrop.addEventListener("click", closeAllDropdowns);
-grid.addEventListener("scroll", handleScrollMasks);
-new ResizeObserver(handleScrollMasks).observe(grid);
-
-init();
+</body>
+</html>
